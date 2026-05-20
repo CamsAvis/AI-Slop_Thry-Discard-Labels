@@ -1,0 +1,28 @@
+name: Build .unitypackage
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Build .unitypackage
+        run: python3 .github/scripts/build-unitypackage.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: unitypackage
+          path: "*.unitypackage"
+          if-no-files-found: error
