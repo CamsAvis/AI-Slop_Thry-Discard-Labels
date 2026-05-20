@@ -12,6 +12,7 @@ GUID = md5(unity_path) so every build emits the same GUIDs and the package
 stays referentially stable across builds.
 """
 
+import gzip
 import hashlib
 import sys
 import tarfile
@@ -78,8 +79,13 @@ def make_meta(asset_path: Path, guid: str) -> str:
 
 
 def collect_assets(repo_root: Path):
-    """Return (asset_path, unity_path) for every folder and file we want in the package."""
-    assets = []
+    """Return (asset_path, unity_path) for every folder and file we want in the package.
+
+    Includes the ASSET_ROOT folder itself as a folder asset (Unity's own exporter
+    does this for every parent folder under the export root, and importers expect
+    a folder-asset entry for the root or they may skip recreating it).
+    """
+    assets = [(repo_root, ASSET_ROOT)]
 
     def walk(dir_path: Path):
         for entry in sorted(dir_path.iterdir(), key=lambda p: p.name):
@@ -122,9 +128,13 @@ def main() -> int:
             entry_dir = staging / guid
             entry_dir.mkdir()
 
-            (entry_dir / "pathname").write_text(unity_path + "\n", encoding="utf-8")
-            (entry_dir / "asset.meta").write_text(
-                make_meta(asset_path, guid), encoding="utf-8"
+            # write_bytes (not write_text) so Python's universal-newline translation
+            # on Windows doesn't slip \r\n into pathname/asset.meta. Unity's pathname
+            # field is the raw path string with NO trailing newline — adding one (or
+            # CRLF) makes Unity's importer skip the entry as malformed.
+            (entry_dir / "pathname").write_bytes(unity_path.encode("utf-8"))
+            (entry_dir / "asset.meta").write_bytes(
+                make_meta(asset_path, guid).encode("utf-8")
             )
             if asset_path.is_file():
                 (entry_dir / "asset").write_bytes(asset_path.read_bytes())
@@ -132,9 +142,29 @@ def main() -> int:
             kind = "folder" if asset_path.is_dir() else "file"
             print(f"  {guid}  [{kind}]  {unity_path}")
 
-        with tarfile.open(output, "w:gz") as tar:
+        # Unity's .unitypackage tar reader is the old SharpZipLib-derived parser
+        # and chokes on two things tarfile does by default:
+        #   1. PAX extended headers (default in Python 3.14) — force GNU_FORMAT.
+        #   2. A gzip FNAME header ending in ".unitypackage" — tarfile.open("w:gz")
+        #      copies the output filename into the gzip FNAME field, so naming the
+        #      output ".unitypackage" poisons its own gzip wrapper. Unity's importer
+        #      sees that and refuses to extract anything (returns 0 items, no error).
+        #      Wrap an explicit GzipFile with filename="archtemp.tar" (what Unity's
+        #      own ExportPackage uses) to dodge this.
+        def _normalize(info: tarfile.TarInfo) -> tarfile.TarInfo:
+            info.mtime = 0
+            info.uid = 0
+            info.gid = 0
+            info.uname = ""
+            info.gname = ""
+            info.mode = 0o777
+            return info
+
+        with open(output, "wb") as out_fp, \
+             gzip.GzipFile(filename="archtemp.tar", mode="wb", fileobj=out_fp, mtime=0) as gz, \
+             tarfile.open(fileobj=gz, mode="w", format=tarfile.GNU_FORMAT) as tar:
             for entry in sorted(staging.iterdir(), key=lambda p: p.name):
-                tar.add(entry, arcname=entry.name)
+                tar.add(entry, arcname=entry.name, filter=_normalize)
 
     size_kb = output.stat().st_size / 1024
     print(f"wrote {output} ({size_kb:.1f} KB, {len(assets)} assets)")
