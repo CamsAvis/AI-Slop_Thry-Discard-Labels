@@ -10,10 +10,10 @@ Supports Poiyomi Toon 8.0 through 9.3. On 8.0–9.1 the stock UI was bare unlabe
 
 The patch is applied manually via menu — nothing runs automatically.
 
-- **Cam → AI Slop → Poiyomi UV Tile Discard Labels → Apply Patch** — swaps `ThryMultiFloatButtons` / `ThryMultiFloats` to `ThryNamedTile*` across every Poi shader file under `Packages/com.poiyomi.toon/_PoiyomiShaders/Shaders/**` and/or `Packages/com.poiyomi.pro/_PoiyomiShaders/Shaders/**` — whichever is installed.
+- **Cam → AI Slop → Poiyomi UV Tile Discard Labels → Apply Patch** — swaps `ThryMultiFloatButtons` / `ThryMultiFloats` to `ThryNamedTile*` across every Poi shader file the patcher can find. It looks under `Packages/com.poiyomi.toon/_PoiyomiShaders/Shaders/**` and `Packages/com.poiyomi.pro/_PoiyomiShaders/Shaders/**` (VCC installs), and also scans `Assets/**` for any `_PoiyomiShaders/Shaders` folder (non-VCC `.unitypackage` installs).
 - **Cam → AI Slop → Poiyomi UV Tile Discard Labels → Revert Patch** — reverses the swap back to stock.
 
-If VCC reinstalls Poiyomi, the patch is wiped and you must hit **Apply Patch** again.
+If VCC or a `.unitypackage` reimport overwrites Poiyomi, the patch is wiped and you must hit **Apply Patch** again.
 
 ## Usage (after patching)
 
@@ -28,8 +28,8 @@ If VCC reinstalls Poiyomi, the patch is wiped and you must hit **Apply Patch** a
 - `Editor/ThryNamedTileButtonsDrawer.cs` defines two custom `MaterialPropertyDrawer` classes (`ThryNamedTileButtons` for Poi 9.2+, `ThryNamedTileFloats` for Poi 8.0–9.1). Both render a 4-toggle-button row and resolve each button's label from a material override tag (`_CamTileLabel_<propertyName>`), falling back to blank when no tag is set. Right-click on a button shows Rename / Reset.
 - Each row's left-side label (e.g. `v3`, `v2`) is kept narrow so the 4-button grid takes up nearly the full inspector row. Hovering the row label shows the tooltip "Right-click any tile button to rename it".
 - If Thry's editor state can't be reached, or the drawer throws for any reason, it falls back to 4 plain `EditorGUI.Toggle` controls bound directly to the underlying float properties. The inspector remains usable — you just don't see custom labels in that mode.
-- `Editor/PoiyomiTileLabelsPatcher.cs` exposes the menu items. It globs every `.shader` file under Poi's Shaders folder and does an idempotent regex swap of the drawer attribute names — only on `_UDIM*` properties, so other usages of `ThryMultiFloatButtons` / `ThryMultiFloats` in Poi's UI are left alone.
-- If the patcher can't find Poi, finds UDIM grids in a drawer format it doesn't recognise (e.g. a future Poi version), or is asked to act when already in the target state, it surfaces a Unity dialog explaining what it found and writes nothing to disk.
+- `Editor/PoiyomiTileLabelsPatcher.cs` exposes the menu items. It discovers Poi shader roots (the known VCC paths plus any `Assets/**/_PoiyomiShaders/Shaders` folder containing `.shader` files), globs every `.shader` file under them, and does an idempotent regex swap of the drawer attribute names — only on `_UDIM*` properties, so other usages of `ThryMultiFloatButtons` / `ThryMultiFloats` in Poi's UI are left alone.
+- Every "0 files changed" outcome (Poi not found, drawer format not recognised, already in target state, mixed state) surfaces a Unity dialog that lists the roots it searched and the counts it observed (files scanned, UDIM-property files, stock-drawer files, custom-drawer files). Nothing fails silently, so you can tell whether the issue is "wrong folder", "newer Poi version with renamed attributes", or "already done".
 
 ## Removal
 
