@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEngine;
 using Thry;
@@ -10,6 +11,31 @@ namespace Cam.PoiyomiTileLabels
         internal const string TAG_PREFIX = "_CamTileLabel_";
         const string TOOLTIP_TEXT = "Right-click any tile button to rename it";
         const float ROW_LABEL_WIDTH = 32f;
+
+        // Poiyomi's lock-in renames animated properties to `<name>_<suffix>`, where suffix defaults to
+        // the material name and can be customised via the lock button's "Locked property suffix" field
+        // (override tag `thry_rename_suffix`). Normalising back to the unlocked name keeps the tag key
+        // stable across lock/unlock cycles regardless of which suffix the user picked.
+        static readonly Regex CANONICAL_UDIM_NAME = new Regex(@"^(_UDIM(?:Face)?DiscardRow\d_\d)(?:_.+)?$", RegexOptions.Compiled);
+
+        internal static string CanonicalPropertyName(string propertyName)
+        {
+            if (string.IsNullOrEmpty(propertyName)) return propertyName;
+            Match m = CANONICAL_UDIM_NAME.Match(propertyName);
+            return m.Success ? m.Groups[1].Value : propertyName;
+        }
+
+        internal static string GetTileLabelTag(Material mat, string propertyName)
+        {
+            if (mat == null || string.IsNullOrEmpty(propertyName)) return string.Empty;
+            string canonical = CanonicalPropertyName(propertyName);
+            string tag = mat.GetTag(TAG_PREFIX + canonical, false, string.Empty);
+            if (!string.IsNullOrEmpty(tag)) return tag;
+            // Fallback: any pre-fix tags accidentally saved under the runtime (suffixed) name.
+            if (canonical != propertyName)
+                return mat.GetTag(TAG_PREFIX + propertyName, false, string.Empty) ?? string.Empty;
+            return string.Empty;
+        }
 
         protected string[] _otherProperties = new string[3];
         protected MaterialProperty[] _otherMaterialProps = new MaterialProperty[3];
@@ -68,8 +94,7 @@ namespace Cam.PoiyomiTileLabels
             string[] displayLabels = new string[4];
             for (int i = 0; i < 4; i++)
             {
-                string tag = refMat != null ? refMat.GetTag(TAG_PREFIX + propNames[i], false, string.Empty) : string.Empty;
-                displayLabels[i] = tag ?? string.Empty;
+                displayLabels[i] = GetTileLabelTag(refMat, propNames[i]);
             }
 
             var labelContent = new GUIContent(label != null ? label.text : string.Empty, TOOLTIP_TEXT);
@@ -202,7 +227,11 @@ namespace Cam.PoiyomiTileLabels
         {
             Object[] capturedTargets = new Object[targets != null ? targets.Length : 0];
             if (targets != null) System.Array.Copy(targets, capturedTargets, targets.Length);
-            string tagKey = TAG_PREFIX + propertyName;
+            // Always write under the canonical (unlocked) property name so the tag survives lock/unlock,
+            // material rename, and custom rename-suffix changes.
+            string canonicalName = CanonicalPropertyName(propertyName);
+            string tagKey = TAG_PREFIX + canonicalName;
+            string runtimeTagKey = canonicalName != propertyName ? TAG_PREFIX + propertyName : null;
 
             var menu = new GenericMenu();
             menu.AddItem(new GUIContent("Rename..."), false, () =>
@@ -212,6 +241,9 @@ namespace Cam.PoiyomiTileLabels
             menu.AddItem(new GUIContent("Reset to default"), false, () =>
             {
                 ApplyTagToTargets(capturedTargets, tagKey, string.Empty);
+                // Also clear any stale tag saved under the runtime (suffixed) name from before normalisation.
+                if (runtimeTagKey != null)
+                    ApplyTagToTargets(capturedTargets, runtimeTagKey, string.Empty);
             });
             menu.ShowAsContext();
         }
