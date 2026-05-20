@@ -20,29 +20,33 @@ namespace Cam.PoiyomiTileLabels
             "Packages/com.poiyomi.pro/_PoiyomiShaders/Shaders",
         };
 
-        // Matches both Poi 9.2+ (ThryMultiFloatButtons(u0, u1, u2, u3, _UDIM...)) and Poi 8.0-9.1
-        // (ThryMultiFloats(true, _UDIM...)) for UV Tile Discard and Face Discard grids.
-        static readonly (Regex pattern, string replacement)[] APPLY_PATCHES = new[]
+        // Three stock attribute forms in the wild:
+        //   Poi 8.0–9.1: [ThryMultiFloats(true, _UDIM…)]
+        //   Poi 9.2–9.3: [ThryMultiFloatButtons(u0, u1, u2, u3, _UDIM…)]
+        //   Poi 10:      [ThryMultiFloatButtons(u0vN, u1vN, u2vN, u3vN, _UDIM…)] (N varies per row)
+        // The button form is matched with an optional `vN` capture group so 9.2+ and 10 share one
+        // regex; the MatchEvaluator re-emits whatever suffix (or none) the source line had.
+        static readonly (Regex pattern, MatchEvaluator evaluator)[] APPLY_PATCHES = new[]
         {
             (
-                new Regex(@"\[ThryMultiFloatButtons\(u0, u1, u2, u3, _UDIM", RegexOptions.Compiled),
-                "[ThryNamedTileButtons(u0, u1, u2, u3, _UDIM"
+                new Regex(@"\[ThryMultiFloatButtons\((u0(?:v\d)?), (u1(?:v\d)?), (u2(?:v\d)?), (u3(?:v\d)?), _UDIM", RegexOptions.Compiled),
+                (MatchEvaluator)(m => $"[ThryNamedTileButtons({m.Groups[1].Value}, {m.Groups[2].Value}, {m.Groups[3].Value}, {m.Groups[4].Value}, _UDIM")
             ),
             (
                 new Regex(@"\[ThryMultiFloats\(true, _UDIM", RegexOptions.Compiled),
-                "[ThryNamedTileFloats(true, _UDIM"
+                (MatchEvaluator)(_ => "[ThryNamedTileFloats(true, _UDIM")
             ),
         };
 
-        static readonly (Regex pattern, string replacement)[] REVERT_PATCHES = new[]
+        static readonly (Regex pattern, MatchEvaluator evaluator)[] REVERT_PATCHES = new[]
         {
             (
-                new Regex(@"\[ThryNamedTileButtons\(u0, u1, u2, u3, _UDIM", RegexOptions.Compiled),
-                "[ThryMultiFloatButtons(u0, u1, u2, u3, _UDIM"
+                new Regex(@"\[ThryNamedTileButtons\((u0(?:v\d)?), (u1(?:v\d)?), (u2(?:v\d)?), (u3(?:v\d)?), _UDIM", RegexOptions.Compiled),
+                (MatchEvaluator)(m => $"[ThryMultiFloatButtons({m.Groups[1].Value}, {m.Groups[2].Value}, {m.Groups[3].Value}, {m.Groups[4].Value}, _UDIM")
             ),
             (
                 new Regex(@"\[ThryNamedTileFloats\(true, _UDIM", RegexOptions.Compiled),
-                "[ThryMultiFloats(true, _UDIM"
+                (MatchEvaluator)(_ => "[ThryMultiFloats(true, _UDIM")
             ),
         };
 
@@ -128,10 +132,10 @@ namespace Cam.PoiyomiTileLabels
                     if (CUSTOM_UDIM_DRAWER_MARKER.IsMatch(text)) customMarkerCount++;
 
                     string patched = text;
-                    foreach (var (pattern, replacement) in patches)
+                    foreach (var (pattern, evaluator) in patches)
                     {
                         if (pattern.IsMatch(patched))
-                            patched = pattern.Replace(patched, replacement);
+                            patched = pattern.Replace(patched, evaluator);
                     }
                     if (patched == text) continue;
                     File.WriteAllText(path, patched);
@@ -174,7 +178,7 @@ namespace Cam.PoiyomiTileLabels
                 EditorUtility.DisplayDialog(
                     DIALOG_TITLE,
                     "Found Poiyomi shader files with UV Tile Discard, but the drawer attribute format isn't recognised.\n\n" + diagnostic +
-                    "\n\nThis tool's regex matches Poiyomi Toon 8.0–9.3. If you're on a newer version (e.g. Poi Pro 10), open one of the matched shader files, find a line declaring a `_UDIMDiscardRow*_*` property, and share the `[Thry...]` attribute on it so the regex can be extended.\n\n" +
+                    "\n\nThis tool's regex matches Poiyomi Toon 8.0 through 10.x. If you're on a newer version, open one of the matched shader files, find a line declaring a `_UDIMDiscardRow*_*` property, and share the `[Thry...]` attribute on it so the regex can be extended.\n\n" +
                     "Nothing was modified — your shader files are untouched.",
                     "OK");
                 return;

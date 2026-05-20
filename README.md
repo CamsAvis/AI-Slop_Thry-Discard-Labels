@@ -4,7 +4,7 @@ Adds per-material custom names for the buttons in Poiyomi Toon's **UV Tile Disca
 
 ![UV Tile Discard with custom labels](.github/assets/demo.png)
 
-Supports Poiyomi Toon 8.0 through 9.3. On 8.0–9.1 the stock UI was bare unlabelled checkboxes (no per-tile labels possible); after patching, those shaders also render the same 4-toggle-button row with custom labels.
+Supports Poiyomi Toon 8.0 through 10.x. On 8.0–9.1 the stock UI was bare unlabelled checkboxes (no per-tile labels possible); after patching, those shaders also render the same 4-toggle-button row with custom labels. Poi 10 changed the stock attribute arg style (the per-row `vN` suffix is preserved verbatim through Apply/Revert so files round-trip byte-identical).
 
 ## Patching
 
