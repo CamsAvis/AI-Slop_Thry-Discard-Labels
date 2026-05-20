@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Text.RegularExpressions;
 using UnityEditor;
@@ -10,9 +11,10 @@ namespace Cam.PoiyomiTileLabels
         const string LOG_PREFIX = "[PoiyomiTileLabels] ";
         const string DIALOG_TITLE = "Poiyomi Tile Labels";
 
-        // Both the free (com.poiyomi.toon) and Pro (com.poiyomi.pro) packages ship the
-        // same _PoiyomiShaders layout. Patch every installed variant.
-        static readonly string[] SHADER_ROOTS = new[]
+        // Known VCC install locations. Free (com.poiyomi.toon) and Pro (com.poiyomi.pro) both
+        // ship the same _PoiyomiShaders layout under Packages/. Non-VCC (unitypackage) installs
+        // land somewhere under Assets/ and are discovered by scanning at runtime.
+        static readonly string[] KNOWN_VCC_ROOTS = new[]
         {
             "Packages/com.poiyomi.toon/_PoiyomiShaders/Shaders",
             "Packages/com.poiyomi.pro/_PoiyomiShaders/Shaders",
@@ -51,15 +53,53 @@ namespace Cam.PoiyomiTileLabels
 
         enum PatchVerb { Apply, Revert }
 
+        // Discover every Poi shader root: known VCC paths plus any 'Assets/**/_PoiyomiShaders/Shaders'
+        // folder. Roots with zero .shader files are skipped (handles orphan dirs left after a VCC uninstall).
+        static List<string> DiscoverShaderRoots()
+        {
+            var roots = new List<string>();
+            var seen = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
+
+            void Consider(string candidate)
+            {
+                if (string.IsNullOrEmpty(candidate) || !Directory.Exists(candidate)) return;
+                if (Directory.GetFiles(candidate, "*.shader", SearchOption.AllDirectories).Length == 0) return;
+                string norm = candidate.Replace('\\', '/').TrimEnd('/');
+                if (seen.Add(norm)) roots.Add(norm);
+            }
+
+            foreach (var root in KNOWN_VCC_ROOTS) Consider(root);
+
+            string assetsAbs = Application.dataPath;
+            if (Directory.Exists(assetsAbs))
+            {
+                string[] candidates;
+                try { candidates = Directory.GetDirectories(assetsAbs, "_PoiyomiShaders", SearchOption.AllDirectories); }
+                catch (System.Exception e) { Debug.LogWarning(LOG_PREFIX + "Assets scan failed: " + e.Message); candidates = new string[0]; }
+
+                foreach (var abs in candidates)
+                {
+                    string shaders = Path.Combine(abs, "Shaders");
+                    if (!Directory.Exists(shaders)) continue;
+                    string rel = "Assets" + shaders.Substring(assetsAbs.Length).Replace('\\', '/');
+                    Consider(rel);
+                }
+            }
+
+            return roots;
+        }
+
         static void RunPatch(PatchVerb verb)
         {
-            var installedRoots = System.Array.FindAll(SHADER_ROOTS, Directory.Exists);
-            if (installedRoots.Length == 0)
+            var installedRoots = DiscoverShaderRoots();
+            if (installedRoots.Count == 0)
             {
                 EditorUtility.DisplayDialog(
                     DIALOG_TITLE,
-                    "No Poiyomi package found. Looked for:\n\n" + string.Join("\n", SHADER_ROOTS) +
-                    "\n\nNothing was modified. Install Poiyomi (Toon or Pro) via VCC and try again.",
+                    "No Poiyomi shaders found. Looked for:\n\n  " +
+                    string.Join("\n  ", KNOWN_VCC_ROOTS) +
+                    "\n  Any 'Assets/**/_PoiyomiShaders/Shaders' folder containing .shader files\n\n" +
+                    "Nothing was modified. Install Poiyomi (Toon or Pro) and try again.",
                     "OK");
                 return;
             }
@@ -72,7 +112,7 @@ namespace Cam.PoiyomiTileLabels
             int stockMarkerCount = 0;
             int customMarkerCount = 0;
 
-            var shaderFilesList = new System.Collections.Generic.List<string>();
+            var shaderFilesList = new List<string>();
             foreach (var root in installedRoots)
                 shaderFilesList.AddRange(Directory.GetFiles(root, "*.shader", SearchOption.AllDirectories));
             string[] shaderFiles = shaderFilesList.ToArray();
@@ -112,12 +152,19 @@ namespace Cam.PoiyomiTileLabels
             }
 
             // Zero changes — figure out why and tell the user clearly.
+            string diagnostic =
+                "Roots searched:\n  " + string.Join("\n  ", installedRoots) + "\n\n" +
+                "Files scanned: " + shaderFiles.Length + "\n" +
+                "Files with UDIM properties: " + udimFileCount + "\n" +
+                "Files with stock drawer attribute: " + stockMarkerCount + "\n" +
+                "Files with custom drawer attribute: " + customMarkerCount;
+
             if (udimFileCount == 0)
             {
                 EditorUtility.DisplayDialog(
                     DIALOG_TITLE,
-                    "No Poiyomi shader files containing UV Tile Discard were found under:\n\n" + string.Join("\n", installedRoots) +
-                    "\n\nIs Poiyomi installed?",
+                    "No Poiyomi shader files containing UV Tile Discard were found.\n\n" + diagnostic +
+                    "\n\nIs Poiyomi installed at one of these locations?",
                     "OK");
                 return;
             }
@@ -126,8 +173,8 @@ namespace Cam.PoiyomiTileLabels
             {
                 EditorUtility.DisplayDialog(
                     DIALOG_TITLE,
-                    "Found Poiyomi shader files with UV Tile Discard, but the drawer format isn't recognised.\n\n" +
-                    "This tool supports Poiyomi Toon 8.0–9.3. If you're on a newer version, the patcher may need updating.\n\n" +
+                    "Found Poiyomi shader files with UV Tile Discard, but the drawer attribute format isn't recognised.\n\n" + diagnostic +
+                    "\n\nThis tool's regex matches Poiyomi Toon 8.0–9.3. If you're on a newer version (e.g. Poi Pro 10), open one of the matched shader files, find a line declaring a `_UDIMDiscardRow*_*` property, and share the `[Thry...]` attribute on it so the regex can be extended.\n\n" +
                     "Nothing was modified — your shader files are untouched.",
                     "OK");
                 return;
@@ -138,13 +185,19 @@ namespace Cam.PoiyomiTileLabels
             bool alreadyReverted = verb == PatchVerb.Revert && customMarkerCount == 0 && stockMarkerCount > 0;
             if (alreadyApplied || alreadyReverted)
             {
-                Debug.Log(LOG_PREFIX + "already " + (verb == PatchVerb.Apply ? "applied" : "reverted") + " — nothing to do.");
+                EditorUtility.DisplayDialog(
+                    DIALOG_TITLE,
+                    "Already " + (verb == PatchVerb.Apply ? "applied" : "reverted") + " — nothing to do.\n\n" + diagnostic,
+                    "OK");
                 return;
             }
 
-            // Mixed state (some files in each marker form) — partial state. Log it but don't surface a dialog;
-            // the per-file logs above already explain.
-            Debug.Log(LOG_PREFIX + verb + " complete: 0 file(s) changed (mixed state, see logs above).");
+            // Mixed state (some files in each marker form).
+            EditorUtility.DisplayDialog(
+                DIALOG_TITLE,
+                "0 file(s) changed — shader files are in a mixed state (some stock, some custom).\n\n" + diagnostic +
+                "\n\nTry running Revert Patch first, then Apply Patch.",
+                "OK");
         }
 
         [MenuItem("Cam/AI Slop/Poiyomi UV Tile Discard Labels/Apply Patch")]
