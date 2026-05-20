@@ -10,7 +10,7 @@ Supports Poiyomi Toon 8.0 through 9.3. On 8.0–9.1 the stock UI was bare unlabe
 
 The patch is applied manually via menu — nothing runs automatically.
 
-- **Cam → AI Slop → Poiyomi UV Tile Discard Labels → Apply Patch** — swaps `ThryMultiFloatButtons` / `ThryMultiFloats` to `ThryNamedTile*` across every Poi shader file under `Packages/com.poiyomi.toon/_PoiyomiShaders/Shaders/**`.
+- **Cam → AI Slop → Poiyomi UV Tile Discard Labels → Apply Patch** — swaps `ThryMultiFloatButtons` / `ThryMultiFloats` to `ThryNamedTile*` across every Poi shader file under `Packages/com.poiyomi.toon/_PoiyomiShaders/Shaders/**` and/or `Packages/com.poiyomi.pro/_PoiyomiShaders/Shaders/**` — whichever is installed.
 - **Cam → AI Slop → Poiyomi UV Tile Discard Labels → Revert Patch** — reverses the swap back to stock.
 
 If VCC reinstalls Poiyomi, the patch is wiped and you must hit **Apply Patch** again.

@@ -9,7 +9,14 @@ namespace Cam.PoiyomiTileLabels
     {
         const string LOG_PREFIX = "[PoiyomiTileLabels] ";
         const string DIALOG_TITLE = "Poiyomi Tile Labels";
-        const string SHADER_ROOT = "Packages/com.poiyomi.toon/_PoiyomiShaders/Shaders";
+
+        // Both the free (com.poiyomi.toon) and Pro (com.poiyomi.pro) packages ship the
+        // same _PoiyomiShaders layout. Patch every installed variant.
+        static readonly string[] SHADER_ROOTS = new[]
+        {
+            "Packages/com.poiyomi.toon/_PoiyomiShaders/Shaders",
+            "Packages/com.poiyomi.pro/_PoiyomiShaders/Shaders",
+        };
 
         // Matches both Poi 9.2+ (ThryMultiFloatButtons(u0, u1, u2, u3, _UDIM...)) and Poi 8.0-9.1
         // (ThryMultiFloats(true, _UDIM...)) for UV Tile Discard and Face Discard grids.
@@ -46,12 +53,13 @@ namespace Cam.PoiyomiTileLabels
 
         static void RunPatch(PatchVerb verb)
         {
-            if (!Directory.Exists(SHADER_ROOT))
+            var installedRoots = System.Array.FindAll(SHADER_ROOTS, Directory.Exists);
+            if (installedRoots.Length == 0)
             {
                 EditorUtility.DisplayDialog(
                     DIALOG_TITLE,
-                    "Poiyomi Toon package not found at:\n\n" + SHADER_ROOT +
-                    "\n\nNothing was modified. Install Poiyomi via VCC and try again.",
+                    "No Poiyomi package found. Looked for:\n\n" + string.Join("\n", SHADER_ROOTS) +
+                    "\n\nNothing was modified. Install Poiyomi (Toon or Pro) via VCC and try again.",
                     "OK");
                 return;
             }
@@ -64,7 +72,10 @@ namespace Cam.PoiyomiTileLabels
             int stockMarkerCount = 0;
             int customMarkerCount = 0;
 
-            string[] shaderFiles = Directory.GetFiles(SHADER_ROOT, "*.shader", SearchOption.AllDirectories);
+            var shaderFilesList = new System.Collections.Generic.List<string>();
+            foreach (var root in installedRoots)
+                shaderFilesList.AddRange(Directory.GetFiles(root, "*.shader", SearchOption.AllDirectories));
+            string[] shaderFiles = shaderFilesList.ToArray();
             foreach (var path in shaderFiles)
             {
                 try
@@ -105,7 +116,7 @@ namespace Cam.PoiyomiTileLabels
             {
                 EditorUtility.DisplayDialog(
                     DIALOG_TITLE,
-                    "No Poiyomi shader files containing UV Tile Discard were found under:\n\n" + SHADER_ROOT +
+                    "No Poiyomi shader files containing UV Tile Discard were found under:\n\n" + string.Join("\n", installedRoots) +
                     "\n\nIs Poiyomi installed?",
                     "OK");
                 return;
