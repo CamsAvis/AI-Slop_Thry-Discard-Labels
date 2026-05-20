@@ -3,7 +3,11 @@ name: Build .unitypackage
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -26,3 +30,23 @@ jobs:
           name: unitypackage
           path: "*.unitypackage"
           if-no-files-found: error
+
+      # Rolling "latest" release that gets overwritten on every push to main.
+      # Easy to grab from the Releases page without poking through workflow runs.
+      - name: Update "latest" rolling release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: "Latest build"
+          body: "Automatic build from `main` @ ${{ github.sha }}"
+          prerelease: true
+          files: "*.unitypackage"
+
+      # Versioned release when you push a vX.Y.Z tag.
+      - name: Create tagged release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "*.unitypackage"
+          generate_release_notes: true
